@@ -18,7 +18,7 @@ from pymoo.optimize import minimize
 from pymoo.util.ref_dirs import get_reference_directions
 from pymoo.termination import get_termination
 from pymoo.core.problem import ElementwiseProblem
-from multiprocessing.pool import ThreadPool
+from multiprocessing.pool import ThreadPool, Pool
 from sklearn.preprocessing import MinMaxScaler
 
 neuron_type = "ipc"
@@ -265,6 +265,7 @@ def run_optimization(
     seed: Optional[int] = None,
     algorithm: str = "NSGA2",
     n_workers: int = 1,
+    pool_type: str = "thread",
     **algorithm_kwargs,
 ):
     """Run pymoo multi-objective optimization.
@@ -276,7 +277,10 @@ def run_optimization(
         algorithm: Algorithm to use. Options:
             - 'NSGA2': Non-dominated Sorting Genetic Algorithm II (default)
             - 'NSGA3': NSGA-III (for many objectives)
-        n_workers: Number of parallel workers (1 = sequential, >1 = parallel with ThreadPool).
+        n_workers: Number of parallel workers (1 = sequential, >1 = parallel).
+        pool_type: Type of pool for parallelization. Options:
+            - 'thread': ThreadPool (default, lower overhead, may be limited by GIL)
+            - 'process': ProcessPool (true parallelism, higher overhead)
         **algorithm_kwargs: Additional keyword arguments for the algorithm.
 
     Returns:
@@ -295,6 +299,7 @@ def run_optimization(
     print(f"Population size: {pop_size}")
     print(f"Generations: {n_gen}")
     print(f"Workers: {n_workers}")
+    print(f"Pool type: {pool_type}")
     print(f"Lower bounds: {parameter_bank.lower_bounds}")
     print(f"Upper bounds: {parameter_bank.upper_bounds}")
 
@@ -314,8 +319,16 @@ def run_optimization(
     # Setup parallelization if requested
     pool = None
     if n_workers > 1:
-        pool = ThreadPool(n_workers)
-        print(f"Using ThreadPool with {n_workers} workers for parallel evaluation")
+        if pool_type == "thread":
+            pool = ThreadPool(n_workers)
+            print(f"Using ThreadPool with {n_workers} workers for parallel evaluation")
+        elif pool_type == "process":
+            pool = Pool(n_workers)
+            print(f"Using ProcessPool with {n_workers} workers for parallel evaluation")
+        else:
+            raise ValueError(
+                f"Unknown pool_type: {pool_type}. Use 'thread' or 'process'."
+            )
 
     # Run optimization
     print(f"\nRunning multi-objective optimization...")
@@ -456,11 +469,12 @@ if __name__ == "__main__":
     # Run optimization
     # Algorithms: 'NSGA2' (recommended for 2-3 objectives), 'NSGA3' (for many objectives)
     result = run_optimization(
-        n_gen=3,  # Number of generations
-        pop_size=2,  # Population size
+        n_gen=10,  # Number of generations
+        pop_size=10,  # Population size
         seed=0,  # For reproducibility
         algorithm="NSGA2",  # NSGA-II algorithm
-        n_workers=2,  # Number of parallel workers
+        n_workers=10,  # Number of parallel workers
+        pool_type="thread",  # 'thread' or 'process'
     )
 
     # You can access the result:
