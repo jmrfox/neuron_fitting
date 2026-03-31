@@ -4,4 +4,14 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "ipykernel>=7.2.0",
+    "jscip",
+    "matplotlib>=3.10.8",
+    "nevergrad>=1.0.12",
+    "pymoo>=0.6.1.6",
+    "seaborn>=0.13.2",
+]
+
+[tool.uv.sources]
+jscip = { git = "https://github.com/jmrfox/jscip.git" }

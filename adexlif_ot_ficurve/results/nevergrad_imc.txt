@@ -1,0 +1,21 @@
+# Best solution from multi-objective optimization
+# Objectives: fi_mse, spikes_outside_penalty, pot_mean_mse, delay_penalty
+# Losses: [np.float64(18521.37986607069), np.float64(0.0), np.float64(7.937496033510898), np.float64(0.0)]
+dt	0.04
+T	600.0
+delay	200.0
+slope_time	2.0
+Vthres	0.0
+Tref	0.5
+R	0.01
+tRC	30.376611771451085
+Vrest	-65.21807932224284
+EL	-65.21807932224284
+Ew	-65.21807932224284
+Vreset	-52.553705780897204
+VTdelta	4.030542387150012
+VT	-48.52316339374719
+Del	2.3607257231495624
+tau_w	149.1027173881341
+a	-5.93026323406144
+b	65.06368317625436

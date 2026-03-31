@@ -3,8 +3,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from jscip import *
 from collections.abc import Sequence
-from paths import data_directory
 import pathlib
+
+PROJECT_DIR = pathlib.Path(__file__).parent.parent
 
 ADEXLIF_TEXNAMES = {
     "Vrest": r"$V_{rest}$ (mV)",
@@ -155,11 +156,9 @@ def get_goddard_ficurve_data(n_thin=1):
     Returns:
     tuple: Two numpy arrays containing the IPC and IMC curves.
     """
-    # Load the data
-    from paths import project_directory
 
     goddard_curves = pd.read_csv(
-        project_directory / "adexlif_ot_project" / "fig5e_fiplot_datasets.csv",
+        PROJECT_DIR / "adexlif_ot_ficurve" / "data" / "fig5e_fiplot_datasets.csv",
         skiprows=2,
         names=["ipc_current", "ipc_rate", "imc_current", "imc_rate"],
     )
@@ -525,15 +524,16 @@ class AdExExperiment:
         figsize=(10, 6),
     ):
         """Plot the F-I curve results."""
+        fig, ax = plt.subplots(figsize=figsize)
         if data is not None:
             assert len(current_amplitudes) == len(data)
+            ax.plot(current_amplitudes, data, c="C1", ls="", marker="o", label="Data")
         results = self.f_i_curve(current_amplitudes)
         if results["success"] is False:
             print(
                 "Simulation failed for one or more current amplitudes. Check parameters and input current."
             )
             return None
-        fig, ax = plt.subplots(figsize=figsize)
         ax.plot(
             current_amplitudes,
             results["rates_inside_stim"],
@@ -542,8 +542,8 @@ class AdExExperiment:
             marker=None,
             label="Simulated",
         )
-        if data is not None:
-            ax.plot(current_amplitudes, data, c="C1", ls="", marker="o", label="Data")
+        # if data is not None:
+        #     ax.plot(current_amplitudes, data, c="C1", ls="", marker="o", label="Data")
         ax.set_xlabel("Current Amplitude (pA)")
         ax.set_ylabel("Firing Rate (Hz)")
         if title is None:
@@ -551,3 +551,76 @@ class AdExExperiment:
         ax.set_title(title)
         ax.legend()
         return fig, ax
+
+
+def default_parameter_bank(neuron_type, array_mode=False):
+    if neuron_type is "imc":
+        bank = ParameterBank(
+            parameters={
+                "dt": IndependentScalarParameter(0.04),
+                "T": IndependentScalarParameter(600),
+                "delay": IndependentScalarParameter(200.0),
+                "slope_time": IndependentScalarParameter(2.0),
+                "Vthres": IndependentScalarParameter(0.0),
+                "Tref": IndependentScalarParameter(0.5),
+                "R": IndependentScalarParameter(
+                    0.5, is_sampled=True, range=(0.01, 0.7)
+                ),
+                "tRC": IndependentScalarParameter(5, is_sampled=True, range=(1, 60)),
+                "Vrest": IndependentScalarParameter(
+                    -65, is_sampled=True, range=(-75, -55)
+                ),
+                "EL": DerivedScalarParameter(lambda p: p["Vrest"]),
+                "Ew": DerivedScalarParameter(lambda p: p["Vrest"]),
+                "Vreset": IndependentScalarParameter(
+                    -55, is_sampled=True, range=(-60, -45)
+                ),
+                "VTdelta": IndependentScalarParameter(
+                    10, is_sampled=True, range=(-20, 30)
+                ),
+                "VT": DerivedScalarParameter(lambda p: p["Vreset"] + p["VTdelta"]),
+                "Del": IndependentScalarParameter(2, is_sampled=True, range=(0.1, 6)),
+                "tau_w": IndependentScalarParameter(
+                    30, is_sampled=True, range=(1, 300)
+                ),
+                "a": IndependentScalarParameter(0, is_sampled=True, range=(-15, 5)),
+                "b": IndependentScalarParameter(50, is_sampled=True, range=(0, 130)),
+            },
+            array_mode=array_mode,
+        )
+    if neuron_type is "ipc":
+        bank = ParameterBank(
+            parameters={
+                "dt": IndependentScalarParameter(0.04),
+                "T": IndependentScalarParameter(600),
+                "delay": IndependentScalarParameter(200.0),
+                "slope_time": IndependentScalarParameter(2.0),
+                "Vthres": IndependentScalarParameter(0.0),
+                "Tref": IndependentScalarParameter(0.8),
+                "R": IndependentScalarParameter(
+                    0.5, is_sampled=True, range=(0.01, 0.7)
+                ),
+                "tRC": IndependentScalarParameter(5, is_sampled=True, range=(1, 60)),
+                "Vrest": IndependentScalarParameter(
+                    -65, is_sampled=True, range=(-75, -55)
+                ),
+                "EL": DerivedScalarParameter(lambda p: p["Vrest"]),
+                "Ew": DerivedScalarParameter(lambda p: p["Vrest"]),
+                "Vreset": IndependentScalarParameter(
+                    -55, is_sampled=True, range=(-60, -45)
+                ),
+                "VTdelta": IndependentScalarParameter(
+                    10, is_sampled=True, range=(0.0, 20)
+                ),
+                "VT": DerivedScalarParameter(lambda p: p["Vreset"] + p["VTdelta"]),
+                "Del": IndependentScalarParameter(2, is_sampled=True, range=(0.1, 6)),
+                "tau_w": IndependentScalarParameter(
+                    30, is_sampled=True, range=(1, 300)
+                ),
+                "a": IndependentScalarParameter(0, is_sampled=True, range=(-15, 5)),
+                "b": IndependentScalarParameter(50, is_sampled=True, range=(0, 130)),
+            },
+            constraints=[lambda p: p["a"] * p["R"] * p["tau_w"] < p["tRC"]],
+            array_mode=array_mode,
+        )
+    return bank
