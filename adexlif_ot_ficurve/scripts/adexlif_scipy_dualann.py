@@ -13,7 +13,7 @@ import numpy as np
 from scipy.optimize import dual_annealing
 
 neuron_type = "imc"
-parameter_bank = default_parameter_bank(neuron_type)
+parameter_bank = default_parameter_bank(neuron_type, array_mode=True)
 data = get_goddard_ficurve_data(n_thin=2)
 data_currents = data[neuron_type]["current"]
 data_frequencies = data[neuron_type]["frequency"]
@@ -354,9 +354,9 @@ if __name__ == "__main__":
 
     # Run optimization
     result = run_optimization(
-        maxiter=1000,
+        maxiter=10,
         seed=0,
-        no_local_search=False,  # Use local search for better convergence
+        no_local_search=True,  # Use local search for better convergence
     )
 
     # You can access the result:

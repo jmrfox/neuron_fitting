@@ -3,6 +3,7 @@
 
 import sys
 from pathlib import Path
+import datetime
 
 # Add parent directory to path to enable imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -18,12 +19,20 @@ from pymoo.util.ref_dirs import get_reference_directions
 from pymoo.termination import get_termination
 from pymoo.core.problem import ElementwiseProblem
 from multiprocessing.pool import ThreadPool
+from sklearn.preprocessing import MinMaxScaler
 
-neuron_type = "imc"
-parameter_bank = default_parameter_bank(neuron_type)
+neuron_type = "ipc"
+parameter_bank = default_parameter_bank(neuron_type, array_mode=True)
 data = get_goddard_ficurve_data(n_thin=2)
 data_currents = data[neuron_type]["current"]
 data_frequencies = data[neuron_type]["frequency"]
+
+# Create scaler to normalize parameters to (0, 1)
+scaler = MinMaxScaler()
+lower_bounds = np.array(parameter_bank.lower_bounds)
+upper_bounds = np.array(parameter_bank.upper_bounds)
+# Fit scaler with bounds as min/max
+scaler.fit(np.vstack([lower_bounds, upper_bounds]))
 
 
 def compute_fi_and_metrics(
@@ -191,12 +200,14 @@ class AdExProblem(ElementwiseProblem):
     """Pymoo Problem definition for AdEx-LIF parameter optimization.
 
     Uses ElementwiseProblem for easier parallelization with multiprocessing.
+    Parameters are normalized to (0, 1) using MinMaxScaler.
     """
 
-    def __init__(self, parameter_bank, data_currents, data_frequencies):
+    def __init__(self, parameter_bank, data_currents, data_frequencies, scaler):
         self.parameter_bank = parameter_bank
         self.data_currents = data_currents
         self.data_frequencies = data_frequencies
+        self.scaler = scaler
 
         # Get bounds from parameter bank
         lower = parameter_bank.lower_bounds
@@ -204,30 +215,31 @@ class AdExProblem(ElementwiseProblem):
 
         # Handle both scalar and vector parameters
         if isinstance(lower, np.ndarray):
-            xl = lower
-            xu = upper
+            n_params = len(lower)
         else:
-            xl = np.array(lower)
-            xu = np.array(upper)
+            n_params = len(lower)
 
-        # Initialize ElementwiseProblem with bounds and number of objectives
+        # Initialize ElementwiseProblem with normalized bounds (0, 1)
         super().__init__(
-            n_var=len(xl),
+            n_var=n_params,
             n_obj=len(DEFAULT_OBJECTIVE_ORDER),
             n_constr=0,
-            xl=xl,
-            xu=xu,
+            xl=np.zeros(n_params),  # All parameters normalized to [0, 1]
+            xu=np.ones(n_params),
         )
 
     def _evaluate(self, x, out, *args, **kwargs):
         """Evaluate objective functions for a single solution.
 
         Args:
-            x: 1D array containing parameter values for a single solution
+            x: 1D array containing normalized parameter values (0, 1) for a single solution
             out: Dictionary to store outputs
         """
         try:
-            param_instance = self.parameter_bank.array_to_instance(x)
+            # Inverse transform from (0, 1) to original parameter space
+            x_original = self.scaler.inverse_transform(x.reshape(1, -1)).flatten()
+
+            param_instance = self.parameter_bank.array_to_instance(x_original)
             fi_metrics = compute_fi_and_metrics(param_instance, self.data_currents)
 
             # Check if simulation succeeded
@@ -270,8 +282,9 @@ def run_optimization(
     Returns:
         Pymoo result object with .X (Pareto front parameters) and .F (Pareto front objectives).
     """
+    t0 = datetime.datetime.now()
     # Create problem
-    problem = AdExProblem(parameter_bank, data_currents, data_frequencies)
+    problem = AdExProblem(parameter_bank, data_currents, data_frequencies, scaler)
     n_params = problem.n_var
     n_objectives = problem.n_obj
 
@@ -343,17 +356,19 @@ def run_optimization(
         for i, idx in enumerate(sorted_indices):
             print(f"  Solution {i+1}: losses = {[f'{l:.4f}' for l in res.F[idx]]}")
 
+    print(f"Time to run: {datetime.datetime.now() - t0}")
     return res
 
 
 def plot_fi_curve_result(
-    result, parameter_bank, data_currents, data_frequencies, filepath=None
+    result, parameter_bank, scaler, data_currents, data_frequencies, filepath=None
 ):
     """Plot the optimized F-I curve against target data.
 
     Args:
         result: Pymoo result object.
         parameter_bank: ParameterBank used for optimization.
+        scaler: MinMaxScaler used for parameter normalization.
         data_currents: Target current values.
         data_frequencies: Target frequency values.
         filepath: Path to save the plot. Default value None does not save.
@@ -362,7 +377,11 @@ def plot_fi_curve_result(
 
     # Get best parameters (compromise solution with minimum sum)
     best_idx = np.argmin(np.sum(result.F, axis=1))
-    best_params = parameter_bank.array_to_instance(result.X[best_idx])
+    # Inverse transform normalized parameters back to original scale
+    best_x_original = scaler.inverse_transform(
+        result.X[best_idx].reshape(1, -1)
+    ).flatten()
+    best_params = parameter_bank.array_to_instance(best_x_original)
     best_losses = result.F[best_idx]
 
     # Run simulation with best parameters
@@ -419,6 +438,9 @@ def plot_fi_curve_result(
     return fig, ax
 
 
+############################
+#           MAIN           #
+############################
 if __name__ == "__main__":
     # Example usage
     print("=" * 80)
@@ -434,11 +456,11 @@ if __name__ == "__main__":
     # Run optimization
     # Algorithms: 'NSGA2' (recommended for 2-3 objectives), 'NSGA3' (for many objectives)
     result = run_optimization(
-        n_gen=100,  # Number of generations
-        pop_size=100,  # Population size
+        n_gen=3,  # Number of generations
+        pop_size=2,  # Population size
         seed=0,  # For reproducibility
         algorithm="NSGA2",  # NSGA-II algorithm
-        n_workers=4,  # Number of parallel workers
+        n_workers=2,  # Number of parallel workers
     )
 
     # You can access the result:
@@ -457,7 +479,10 @@ if __name__ == "__main__":
     # Get best compromise solution
     best_idx = np.argmin(np.sum(result.F, axis=1))
     best_losses = result.F[best_idx]
-    best_x = result.X[best_idx]
+    best_x_normalized = result.X[best_idx]
+
+    # Inverse transform normalized parameters back to original scale
+    best_x = scaler.inverse_transform(best_x_normalized.reshape(1, -1)).flatten()
 
     # Save best solution
     with open(result_filepath, "w") as f:
@@ -469,7 +494,7 @@ if __name__ == "__main__":
             f.write(f"{name}\t{val}\n")
 
     # Print results
-    print(f"\nBest compromise parameters:")
+    print(f"\nBest compromise parameters (original scale):")
     print(best_x)
     print(f"\nBest compromise objective losses: {best_losses}")
 
@@ -483,12 +508,14 @@ if __name__ == "__main__":
         f.write(f"# Objectives: {', '.join(DEFAULT_OBJECTIVE_ORDER)}\n")
         for i in range(len(result.F)):
             f.write(f"\n# Solution {i+1}, losses: {result.F[i]}\n")
-            param_set = parameter_bank.array_to_instance(result.X[i])
+            # Inverse transform normalized parameters back to original scale
+            x_original = scaler.inverse_transform(result.X[i].reshape(1, -1)).flatten()
+            param_set = parameter_bank.array_to_instance(x_original)
             for name, val in param_set.items():
                 f.write(f"{name}\t{val}\n")
 
     # Plot the optimized F-I curve
     print("\nGenerating F-I curve plot...")
     plot_fi_curve_result(
-        result, parameter_bank, data_currents, data_frequencies, plot_filepath
+        result, parameter_bank, scaler, data_currents, data_frequencies, plot_filepath
     )

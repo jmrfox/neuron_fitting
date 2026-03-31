@@ -671,6 +671,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "nevergrad" },
     { name = "pymoo" },
+    { name = "scikit-learn" },
     { name = "seaborn" },
 ]
 
@@ -681,6 +682,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "nevergrad", specifier = ">=1.0.12" },
     { name = "pymoo", specifier = ">=0.6.1.6" },
+    { name = "scikit-learn", specifier = ">=1.8.0" },
     { name = "seaborn", specifier = ">=0.13.2" },
 ]
 

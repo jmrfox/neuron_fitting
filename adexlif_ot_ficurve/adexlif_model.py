@@ -554,7 +554,7 @@ class AdExExperiment:
 
 
 def default_parameter_bank(neuron_type, array_mode=False):
-    if neuron_type is "imc":
+    if neuron_type == "imc":
         bank = ParameterBank(
             parameters={
                 "dt": IndependentScalarParameter(0.04),
@@ -562,33 +562,75 @@ def default_parameter_bank(neuron_type, array_mode=False):
                 "delay": IndependentScalarParameter(200.0),
                 "slope_time": IndependentScalarParameter(2.0),
                 "Vthres": IndependentScalarParameter(0.0),
-                "Tref": IndependentScalarParameter(0.5),
+                "Tref": IndependentScalarParameter(2.0),
                 "R": IndependentScalarParameter(
-                    0.5, is_sampled=True, range=(0.01, 0.7)
+                    0.1, is_sampled=True, range=(0.05, 1.0)
                 ),
-                "tRC": IndependentScalarParameter(5, is_sampled=True, range=(1, 60)),
+                "tRC": IndependentScalarParameter(20, is_sampled=True, range=(1, 60)),
                 "Vrest": IndependentScalarParameter(
                     -65, is_sampled=True, range=(-75, -55)
                 ),
-                "EL": DerivedScalarParameter(lambda p: p["Vrest"]),
-                "Ew": DerivedScalarParameter(lambda p: p["Vrest"]),
+                "EL": IndependentScalarParameter(
+                    -70, is_sampled=True, range=(-70, -58)
+                ),
+                "Ew": DerivedScalarParameter(lambda p: p["EL"]),
                 "Vreset": IndependentScalarParameter(
-                    -55, is_sampled=True, range=(-60, -45)
+                    -58, is_sampled=True, range=(-60, -45)
                 ),
                 "VTdelta": IndependentScalarParameter(
-                    10, is_sampled=True, range=(-20, 30)
+                    8, is_sampled=True, range=(1, 16)
                 ),
                 "VT": DerivedScalarParameter(lambda p: p["Vreset"] + p["VTdelta"]),
-                "Del": IndependentScalarParameter(2, is_sampled=True, range=(0.1, 6)),
+                "Del": IndependentScalarParameter(2, is_sampled=True, range=(0.2, 6)),
                 "tau_w": IndependentScalarParameter(
                     30, is_sampled=True, range=(1, 300)
                 ),
-                "a": IndependentScalarParameter(0, is_sampled=True, range=(-15, 5)),
-                "b": IndependentScalarParameter(50, is_sampled=True, range=(0, 130)),
+                "a": IndependentScalarParameter(2, is_sampled=True, range=(0, 4)),
+                "b": IndependentScalarParameter(0, is_sampled=True, range=(0, 300)),
             },
             array_mode=array_mode,
         )
-    if neuron_type is "ipc":
+    if neuron_type == "ipc":
+        # first ipc bank, derived from Naud 2008, Fig4a
+        # bank = ParameterBank(
+        #     parameters={
+        #         "dt": IndependentScalarParameter(0.04),
+        #         "T": IndependentScalarParameter(600),
+        #         "delay": IndependentScalarParameter(200.0),
+        #         "slope_time": IndependentScalarParameter(2.0),
+        #         "Vthres": IndependentScalarParameter(0.0),
+        #         "Tref": IndependentScalarParameter(2.0),
+        #         "R": IndependentScalarParameter(
+        #             0.1, is_sampled=True, range=(0.05, 1.0)
+        #         ),
+        #         "tRC": IndependentScalarParameter(20, is_sampled=True, range=(1, 60)),
+        #         "Vrest": IndependentScalarParameter(
+        #             -65, is_sampled=True, range=(-75, -55)
+        #         ),
+        #         "EL": IndependentScalarParameter(
+        #             -70, is_sampled=True, range=(-70, -58)
+        #         ),
+        #         "Ew": DerivedScalarParameter(lambda p: p["EL"]),
+        #         "Vreset": IndependentScalarParameter(
+        #             -58, is_sampled=True, range=(-60, -45)
+        #         ),
+        #         "VTdelta": IndependentScalarParameter(
+        #             8, is_sampled=True, range=(1, 16)
+        #         ),
+        #         "VT": DerivedScalarParameter(lambda p: p["Vreset"] + p["VTdelta"]),
+        #         "Del": IndependentScalarParameter(2, is_sampled=True, range=(0.2, 6)),
+        #         "tau_w": IndependentScalarParameter(
+        #             30, is_sampled=True, range=(1, 300)
+        #         ),
+        #         "a": IndependentScalarParameter(2, is_sampled=True, range=(0, 4)),
+        #         "b": IndependentScalarParameter(0, is_sampled=True, range=(0, 300)),
+        #     },
+        #     constraints=[
+        #         lambda p: p["a"] * p["R"] - p["tRC"] / p["tau_w"] < 0
+        #     ],  # restrict to SN bifurcation
+        #     array_mode=array_mode,
+        # )
+        # updated, small PyMOO NSGA2 run
         bank = ParameterBank(
             parameters={
                 "dt": IndependentScalarParameter(0.04),
@@ -596,31 +638,35 @@ def default_parameter_bank(neuron_type, array_mode=False):
                 "delay": IndependentScalarParameter(200.0),
                 "slope_time": IndependentScalarParameter(2.0),
                 "Vthres": IndependentScalarParameter(0.0),
-                "Tref": IndependentScalarParameter(0.8),
+                "Tref": IndependentScalarParameter(2.0),
                 "R": IndependentScalarParameter(
-                    0.5, is_sampled=True, range=(0.01, 0.7)
+                    0.9, is_sampled=True, range=(0.05, 2.0)
                 ),
-                "tRC": IndependentScalarParameter(5, is_sampled=True, range=(1, 60)),
+                "tRC": IndependentScalarParameter(33, is_sampled=True, range=(1, 60)),
                 "Vrest": IndependentScalarParameter(
-                    -65, is_sampled=True, range=(-75, -55)
+                    -58, is_sampled=True, range=(-75, -55)
                 ),
-                "EL": DerivedScalarParameter(lambda p: p["Vrest"]),
-                "Ew": DerivedScalarParameter(lambda p: p["Vrest"]),
+                "EL": IndependentScalarParameter(
+                    -62, is_sampled=True, range=(-70, -58)
+                ),
+                "Ew": DerivedScalarParameter(lambda p: p["EL"]),
                 "Vreset": IndependentScalarParameter(
-                    -55, is_sampled=True, range=(-60, -45)
+                    -52, is_sampled=True, range=(-60, -45)
                 ),
                 "VTdelta": IndependentScalarParameter(
-                    10, is_sampled=True, range=(0.0, 20)
+                    4, is_sampled=True, range=(1, 16)
                 ),
                 "VT": DerivedScalarParameter(lambda p: p["Vreset"] + p["VTdelta"]),
-                "Del": IndependentScalarParameter(2, is_sampled=True, range=(0.1, 6)),
+                "Del": IndependentScalarParameter(5.2, is_sampled=True, range=(0.2, 6)),
                 "tau_w": IndependentScalarParameter(
-                    30, is_sampled=True, range=(1, 300)
+                    26, is_sampled=True, range=(1, 300)
                 ),
-                "a": IndependentScalarParameter(0, is_sampled=True, range=(-15, 5)),
-                "b": IndependentScalarParameter(50, is_sampled=True, range=(0, 130)),
+                "a": IndependentScalarParameter(1, is_sampled=True, range=(0, 4)),
+                "b": IndependentScalarParameter(16, is_sampled=True, range=(0, 300)),
             },
-            constraints=[lambda p: p["a"] * p["R"] * p["tau_w"] < p["tRC"]],
+            constraints=[
+                lambda p: p["a"] * p["R"] - p["tRC"] / p["tau_w"] < 0
+            ],  # restrict to SN bifurcation
             array_mode=array_mode,
         )
     return bank

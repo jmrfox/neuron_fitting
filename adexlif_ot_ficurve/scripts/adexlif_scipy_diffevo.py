@@ -13,7 +13,7 @@ import numpy as np
 from scipy.optimize import differential_evolution
 
 neuron_type = "imc"
-parameter_bank = default_parameter_bank(neuron_type)
+parameter_bank = default_parameter_bank(neuron_type, array_mode=True)
 data = get_goddard_ficurve_data(n_thin=2)
 data_currents = data[neuron_type]["current"]
 data_frequencies = data[neuron_type]["frequency"]

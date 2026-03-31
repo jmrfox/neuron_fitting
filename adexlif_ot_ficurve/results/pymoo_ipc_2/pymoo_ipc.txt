@@ -1,0 +1,21 @@
+# Best compromise solution from multi-objective optimization
+# Objectives: fi_mse, spikes_outside_penalty, pot_mean_mse, delay_penalty
+# Losses: [487.91305039   0.           1.19536226  47.82528   ]
+dt	0.04
+T	600.0
+delay	200.0
+slope_time	2.0
+Vthres	0.0
+Tref	2.0
+R	0.0645914106037337
+tRC	1.0486386688023934
+Vrest	-60.08899969313875
+EL	-62.047429999805466
+Ew	-62.047429999805466
+Vreset	-58.29589703079047
+VTdelta	2.000909376791284
+VT	-56.294987653999186
+Del	4.486752139001904
+tau_w	37.39730026857668
+a	2.277701017935448
+b	43.91479486391579
