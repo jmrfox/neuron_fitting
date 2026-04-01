@@ -433,6 +433,21 @@ def plot_fi_curve_result(
     return fig, ax
 
 
+def unique_path(path: Path) -> Path:
+    """Return path with (1), (2), ... appended before suffix if it already exists."""
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}({i}){suffix}"
+        if not candidate.exists():
+            return candidate
+        i += 1
+
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -580,8 +595,8 @@ if __name__ == "__main__":
     run_label = args.output_label if args.output_label else f"pymoo_{neuron_type}"
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    result_filepath = output_dir / f"{run_label}.txt"
-    plot_filepath = output_dir / f"{run_label}.png"
+    result_filepath = unique_path(output_dir / f"{run_label}.txt")
+    plot_filepath = unique_path(output_dir / f"{run_label}.png")
 
     # Get best compromise solution
     best_idx = np.argmin(np.sum(result.F, axis=1))
@@ -602,7 +617,7 @@ if __name__ == "__main__":
 
     # Save Pareto front
     logger.info(f"Saving Pareto front with {len(result.F)} solutions...")
-    pareto_filepath = output_dir / f"{run_label}_pareto.txt"
+    pareto_filepath = unique_path(output_dir / f"{run_label}_pareto.txt")
     with open(pareto_filepath, "w") as f:
         f.write("# Pareto front solutions\n")
         f.write(f"# Objectives: {', '.join(DEFAULT_OBJECTIVE_ORDER)}\n")
