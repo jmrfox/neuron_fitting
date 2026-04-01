@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ipykernel>=7.2.0",
+    "joblib>=1.5.3",
     "jscip",
     "matplotlib>=3.10.8",
     "nevergrad>=1.0.12",

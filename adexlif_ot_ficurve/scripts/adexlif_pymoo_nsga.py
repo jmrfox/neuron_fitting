@@ -4,6 +4,8 @@
 import sys
 from pathlib import Path
 import datetime
+import logging
+import argparse
 
 # Add parent directory to path to enable imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -11,28 +13,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from adexlif_model import *
 from typing import Dict, Optional, List, Callable
 import numpy as np
-from pymoo.core.problem import Problem
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.algorithms.moo.nsga3 import NSGA3
 from pymoo.optimize import minimize
 from pymoo.util.ref_dirs import get_reference_directions
 from pymoo.termination import get_termination
 from pymoo.core.problem import ElementwiseProblem
-from multiprocessing.pool import ThreadPool, Pool
 from sklearn.preprocessing import MinMaxScaler
 
-neuron_type = "ipc"
-parameter_bank = default_parameter_bank(neuron_type, array_mode=True)
-data = get_goddard_ficurve_data(n_thin=2)
-data_currents = data[neuron_type]["current"]
-data_frequencies = data[neuron_type]["frequency"]
-
-# Create scaler to normalize parameters to (0, 1)
-scaler = MinMaxScaler()
-lower_bounds = np.array(parameter_bank.lower_bounds)
-upper_bounds = np.array(parameter_bank.upper_bounds)
-# Fit scaler with bounds as min/max
-scaler.fit(np.vstack([lower_bounds, upper_bounds]))
+# Setup logging
+logger = logging.getLogger(__name__)
 
 
 def compute_fi_and_metrics(
@@ -185,12 +175,6 @@ def make_objective_vector(
     return np.array(objs, dtype=float)
 
 
-def objective_function(parameter_array):
-    param_instance = parameter_bank.array_to_instance(parameter_array)
-    fi_metrics = compute_fi_and_metrics(param_instance, data_currents)
-    return make_objective_vector(fi_metrics, param_instance, data_frequencies)
-
-
 def get_parameter_count(parameter_bank):
     """Number of sampled parameters, for sanity check in optimizer"""
     return len(parameter_bank.get_default_values(return_array=True))
@@ -212,12 +196,7 @@ class AdExProblem(ElementwiseProblem):
         # Get bounds from parameter bank
         lower = parameter_bank.lower_bounds
         upper = parameter_bank.upper_bounds
-
-        # Handle both scalar and vector parameters
-        if isinstance(lower, np.ndarray):
-            n_params = len(lower)
-        else:
-            n_params = len(lower)
+        n_params = len(lower)
 
         # Initialize ElementwiseProblem with normalized bounds (0, 1)
         super().__init__(
@@ -252,35 +231,34 @@ class AdExProblem(ElementwiseProblem):
                 out["F"] = obj_vector
 
         except Exception as e:
-            print(f"Error evaluating solution: {e}")
+            logger.error(f"Error evaluating solution: {e}")
             out["F"] = np.full(self.n_obj, 1e10)
 
 
-# Removed - functionality moved to AdExProblem class
-
-
 def run_optimization(
+    parameter_bank,
+    data_currents,
+    data_frequencies,
+    scaler,
     n_gen: int = 100,
     pop_size: int = 100,
     seed: Optional[int] = None,
     algorithm: str = "NSGA2",
     n_workers: int = 1,
-    pool_type: str = "thread",
     **algorithm_kwargs,
 ):
     """Run pymoo multi-objective optimization.
 
     Args:
+        parameter_bank: ParameterBank instance.
+        data_currents: Target current values.
+        data_frequencies: Target frequency values.
+        scaler: MinMaxScaler for parameter normalization.
         n_gen: Number of generations.
         pop_size: Population size.
         seed: Random seed for reproducibility.
-        algorithm: Algorithm to use. Options:
-            - 'NSGA2': Non-dominated Sorting Genetic Algorithm II (default)
-            - 'NSGA3': NSGA-III (for many objectives)
+        algorithm: Algorithm to use (NSGA2 or NSGA3).
         n_workers: Number of parallel workers (1 = sequential, >1 = parallel).
-        pool_type: Type of pool for parallelization. Options:
-            - 'thread': ThreadPool (default, lower overhead, may be limited by GIL)
-            - 'process': ProcessPool (true parallelism, higher overhead)
         **algorithm_kwargs: Additional keyword arguments for the algorithm.
 
     Returns:
@@ -292,16 +270,15 @@ def run_optimization(
     n_params = problem.n_var
     n_objectives = problem.n_obj
 
-    print(f"Starting pymoo optimization with {algorithm}")
-    print(f"Number of parameters: {n_params}")
-    print(f"Number of objectives: {n_objectives}")
-    print(f"Objectives: {DEFAULT_OBJECTIVE_ORDER}")
-    print(f"Population size: {pop_size}")
-    print(f"Generations: {n_gen}")
-    print(f"Workers: {n_workers}")
-    print(f"Pool type: {pool_type}")
-    print(f"Lower bounds: {parameter_bank.lower_bounds}")
-    print(f"Upper bounds: {parameter_bank.upper_bounds}")
+    logger.info(f"Starting pymoo optimization with {algorithm}")
+    logger.info(f"Number of parameters: {n_params}")
+    logger.info(f"Number of objectives: {n_objectives}")
+    logger.info(f"Objectives: {DEFAULT_OBJECTIVE_ORDER}")
+    logger.info(f"Population size: {pop_size}")
+    logger.info(f"Generations: {n_gen}")
+    logger.info(f"Workers: {n_workers}")
+    logger.debug(f"Lower bounds: {parameter_bank.lower_bounds}")
+    logger.debug(f"Upper bounds: {parameter_bank.upper_bounds}")
 
     # Create algorithm
     if algorithm == "NSGA2":
@@ -317,59 +294,64 @@ def run_optimization(
     termination = get_termination("n_gen", n_gen)
 
     # Setup parallelization if requested
-    pool = None
     if n_workers > 1:
-        if pool_type == "thread":
-            pool = ThreadPool(n_workers)
-            print(f"Using ThreadPool with {n_workers} workers for parallel evaluation")
-        elif pool_type == "process":
-            pool = Pool(n_workers)
-            print(f"Using ProcessPool with {n_workers} workers for parallel evaluation")
-        else:
-            raise ValueError(
-                f"Unknown pool_type: {pool_type}. Use 'thread' or 'process'."
-            )
+        from pymoo.parallelization.joblib import JoblibParallelization
 
-    # Run optimization
-    print(f"\nRunning multi-objective optimization...")
-    try:
+        runner = JoblibParallelization(n_jobs=n_workers)
+        problem.elementwise_runner = runner
+
+        logger.info(f"Using JoblibParallelization with {n_workers} workers")
+        logger.info("Running multi-objective optimization...")
+
         res = minimize(
             problem,
             algo,
             termination,
             seed=seed,
             verbose=True,
-            elementwise_runner=pool.starmap if pool else None,
         )
-    finally:
-        if pool:
-            pool.close()
-            pool.join()
+    else:
+        # Sequential execution
+        logger.info("Running multi-objective optimization (sequential)...")
+        res = minimize(
+            problem,
+            algo,
+            termination,
+            seed=seed,
+            verbose=True,
+        )
 
-    print(f"\nOptimization complete!")
-    print(f"Pareto front size: {len(res.F)}")
+    logger.info("Optimization complete!")
+    logger.info(f"Pareto front size: {len(res.F)}")
 
     # Print best solution (closest to ideal point)
     if len(res.F) > 0:
         # Find solution with minimum sum of objectives (compromise solution)
         best_idx = np.argmin(np.sum(res.F, axis=1))
-        print(f"\nBest compromise solution (min sum of objectives):")
-        print(f"Objective losses: {res.F[best_idx]}")
+        logger.info("Best compromise solution (min sum of objectives):")
+        logger.info(f"Objective losses: {res.F[best_idx]}")
         for i, obj_name in enumerate(DEFAULT_OBJECTIVE_ORDER):
-            print(f"  {obj_name}: {res.F[best_idx][i]:.6f}")
+            logger.info(f"  {obj_name}: {res.F[best_idx][i]:.6f}")
+
+        # Inverse transform normalized parameters back to original scale
+        best_x_original = scaler.inverse_transform(
+            res.X[best_idx].reshape(1, -1)
+        ).flatten()
 
         # Convert best parameters back to ParameterSet
-        best_params = parameter_bank.array_to_instance(res.X[best_idx])
-        print(f"\nBest parameters:")
-        print(best_params)
+        best_params = parameter_bank.array_to_instance(best_x_original)
+        logger.info("Best parameters:")
+        logger.info(f"\n{best_params}")
 
         # Print top 5 solutions from Pareto front
-        print(f"\nPareto front (sorted by first objective):")
+        logger.info("Pareto front (sorted by first objective):")
         sorted_indices = np.argsort(res.F[:, 0])[:5]
         for i, idx in enumerate(sorted_indices):
-            print(f"  Solution {i+1}: losses = {[f'{l:.4f}' for l in res.F[idx]]}")
+            logger.info(
+                f"  Solution {i+1}: losses = {[f'{l:.4f}' for l in res.F[idx]]}"
+            )
 
-    print(f"Time to run: {datetime.datetime.now() - t0}")
+    logger.info(f"Time to run: {datetime.datetime.now() - t0}")
     return res
 
 
@@ -402,7 +384,7 @@ def plot_fi_curve_result(
     fi_results = exp.f_i_curve(data_currents)
 
     if not fi_results["success"]:
-        print("Warning: Simulation with best parameters failed!")
+        logger.warning("Simulation with best parameters failed!")
         return None
 
     # Create plot
@@ -451,44 +433,155 @@ def plot_fi_curve_result(
     return fig, ax
 
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="AdEx-LIF Parameter Optimization using pymoo NSGA-II/III",
+    )
+
+    # Required arguments
+    parser.add_argument(
+        "--neuron-type",
+        type=str,
+        choices=["imc", "ipc"],
+        default="ipc",
+        help="Neuron type to optimize (default: ipc)",
+    )
+
+    # Optimization parameters
+    parser.add_argument(
+        "--n-gen",
+        type=int,
+        default=100,
+        help="Number of generations (default: 100)",
+    )
+    parser.add_argument(
+        "--pop-size",
+        type=int,
+        default=60,
+        help="Population size (default: 60)",
+    )
+    parser.add_argument(
+        "--n-workers",
+        type=int,
+        default=10,
+        help="Number of parallel workers, 1 = sequential (default: 10)",
+    )
+    parser.add_argument(
+        "--algorithm",
+        type=str,
+        choices=["NSGA2", "NSGA3"],
+        default="NSGA2",
+        help="Algorithm to use (default: NSGA2)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed for reproducibility (default: 0)",
+    )
+
+    # Output options
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="./results",
+        help="Directory to save results (default: ./results)",
+    )
+    parser.add_argument(
+        "--output-label",
+        type=str,
+        default=None,
+        help="Custom label for output files. If not set, uses pymoo_<neuron_type>",
+    )
+
+    # Logging options
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="INFO",
+        help="Logging level (default: INFO)",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Log file path. If not set, logs to console only",
+    )
+
+    return parser.parse_args()
+
+
+def setup_logging(log_level: str, log_file: Optional[str] = None):
+    """Configure logging."""
+    handlers = [logging.StreamHandler()]
+
+    if log_file:
+        handlers.append(logging.FileHandler(log_file))
+
+    logging.basicConfig(
+        level=getattr(logging, log_level),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=handlers,
+    )
+
+
 ############################
 #           MAIN           #
 ############################
 if __name__ == "__main__":
-    # Example usage
-    print("=" * 80)
-    print("AdEx-LIF Parameter Optimization using pymoo")
-    print("=" * 80)
-    print(f"\nNeuron type: {neuron_type}")
-    print(f"Number of data points: {len(data_currents)}")
-    print(f"Current range: {data_currents.min():.2f} - {data_currents.max():.2f} pA")
-    print(
+    # Parse command line arguments
+    args = parse_args()
+
+    # Setup logging
+    setup_logging(args.log_level, args.log_file)
+
+    logger.info("=" * 80)
+    logger.info("AdEx-LIF Parameter Optimization using pymoo")
+    logger.info("=" * 80)
+
+    # Load data and setup parameter bank
+    neuron_type = args.neuron_type
+    parameter_bank = default_parameter_bank(neuron_type, array_mode=True)
+    data = get_goddard_ficurve_data(n_thin=2)
+    data_currents = data[neuron_type]["current"]
+    data_frequencies = data[neuron_type]["frequency"]
+
+    # Create scaler to normalize parameters to (0, 1)
+    scaler = MinMaxScaler()
+    lower_bounds = np.array(parameter_bank.lower_bounds)
+    upper_bounds = np.array(parameter_bank.upper_bounds)
+    scaler.fit(np.vstack([lower_bounds, upper_bounds]))
+
+    logger.info(f"Neuron type: {neuron_type}")
+    logger.info(f"Number of data points: {len(data_currents)}")
+    logger.info(
+        f"Current range: {data_currents.min():.2f} - {data_currents.max():.2f} pA"
+    )
+    logger.info(
         f"Frequency range: {data_frequencies.min():.2f} - {data_frequencies.max():.2f} Hz"
     )
 
     # Run optimization
-    # Algorithms: 'NSGA2' (recommended for 2-3 objectives), 'NSGA3' (for many objectives)
     result = run_optimization(
-        n_gen=10,  # Number of generations
-        pop_size=10,  # Population size
-        seed=0,  # For reproducibility
-        algorithm="NSGA2",  # NSGA-II algorithm
-        n_workers=10,  # Number of parallel workers
-        pool_type="thread",  # 'thread' or 'process'
+        parameter_bank=parameter_bank,
+        data_currents=data_currents,
+        data_frequencies=data_frequencies,
+        scaler=scaler,
+        n_gen=args.n_gen,
+        pop_size=args.pop_size,
+        seed=args.seed,
+        algorithm=args.algorithm,
+        n_workers=args.n_workers,
     )
 
-    # You can access the result:
-    # result.X - Pareto front parameter arrays (2D array)
-    # result.F - Pareto front objective values (2D array)
-    # Best compromise: argmin(sum(result.F, axis=1))
-
-    run_label = f"pymoo_{neuron_type}"
-    result_filepath = Path(
-        f"/home/jordan/repos/neuron_fitting/adexlif_ot_ficurve/results/{run_label}.txt"
-    )
-    plot_filepath = Path(
-        f"/home/jordan/repos/neuron_fitting/adexlif_ot_ficurve/results/{run_label}.png"
-    )
+    # Determine output label
+    run_label = args.output_label if args.output_label else f"pymoo_{neuron_type}"
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result_filepath = output_dir / f"{run_label}.txt"
+    plot_filepath = output_dir / f"{run_label}.png"
 
     # Get best compromise solution
     best_idx = np.argmin(np.sum(result.F, axis=1))
@@ -507,16 +600,9 @@ if __name__ == "__main__":
         for name, val in param_set.items():
             f.write(f"{name}\t{val}\n")
 
-    # Print results
-    print(f"\nBest compromise parameters (original scale):")
-    print(best_x)
-    print(f"\nBest compromise objective losses: {best_losses}")
-
     # Save Pareto front
-    print(f"\nSaving Pareto front with {len(result.F)} solutions...")
-    pareto_filepath = Path(
-        f"/home/jordan/repos/neuron_fitting/adexlif_ot_ficurve/results/{run_label}_pareto.txt"
-    )
+    logger.info(f"Saving Pareto front with {len(result.F)} solutions...")
+    pareto_filepath = output_dir / f"{run_label}_pareto.txt"
     with open(pareto_filepath, "w") as f:
         f.write("# Pareto front solutions\n")
         f.write(f"# Objectives: {', '.join(DEFAULT_OBJECTIVE_ORDER)}\n")
@@ -529,7 +615,13 @@ if __name__ == "__main__":
                 f.write(f"{name}\t{val}\n")
 
     # Plot the optimized F-I curve
-    print("\nGenerating F-I curve plot...")
+    logger.info("Generating F-I curve plot...")
     plot_fi_curve_result(
         result, parameter_bank, scaler, data_currents, data_frequencies, plot_filepath
     )
+
+    logger.info(f"Results saved to: {output_dir}")
+    logger.info(f"  - Best solution: {result_filepath}")
+    logger.info(f"  - Pareto front: {pareto_filepath}")
+    logger.info(f"  - Plot: {plot_filepath}")
+    logger.info("Optimization complete!")

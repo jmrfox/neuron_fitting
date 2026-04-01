@@ -667,6 +667,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "ipykernel" },
+    { name = "joblib" },
     { name = "jscip" },
     { name = "matplotlib" },
     { name = "nevergrad" },
@@ -678,6 +679,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "ipykernel", specifier = ">=7.2.0" },
+    { name = "joblib", specifier = ">=1.5.3" },
     { name = "jscip", git = "https://github.com/jmrfox/jscip.git" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "nevergrad", specifier = ">=1.0.12" },
