@@ -127,6 +127,23 @@ def _obj_delay_penalty(
     return 0.2 * float(np.sum(delays**2))
 
 
+def _obj_subthreshold_rate_penalty(
+    fi_metrics: Dict[str, np.ndarray | float | bool],
+    params: ParameterSet,
+    target_fi: Optional[np.ndarray],
+) -> float:
+    """Penalize nonzero firing rates where the target FI curve is zero.
+
+    This is primarily intended for the IMC neuron type, which has a flat-zero
+    region at low currents before an abrupt onset of firing.
+    """
+    if target_fi is None:
+        raise ValueError("target_fi must be provided for subthreshold_rate_penalty")
+    sim = np.asarray(fi_metrics["rates_inside_stim"])  # type: ignore[index]
+    zero_mask = target_fi == 0.0
+    return 100.0 * float(np.sum(sim[zero_mask] ** 2))
+
+
 OBJECTIVE_REGISTRY: Dict[
     str,
     Callable[
@@ -138,6 +155,7 @@ OBJECTIVE_REGISTRY: Dict[
     "spikes_outside_penalty": _obj_spikes_outside_penalty,
     "pot_mean_mse": _obj_pot_mean_mse,
     "delay_penalty": _obj_delay_penalty,
+    "subthreshold_rate_penalty": _obj_subthreshold_rate_penalty,
 }
 
 
@@ -156,12 +174,12 @@ def make_objective_vector(
     - `order`: list specifying the order of objectives in the output vector.
     Extend by registering new functions in `OBJECTIVE_REGISTRY` and toggling here.
     """
-    if include is None:
-        include = {name: True for name in DEFAULT_OBJECTIVE_ORDER}
     if weights is None:
         weights = {}
     if order is None:
-        order = [name for name in DEFAULT_OBJECTIVE_ORDER if include.get(name, False)]
+        order = DEFAULT_OBJECTIVE_ORDER
+    if include is None:
+        include = {name: True for name in order}
 
     objs: List[float] = []
     for name in order:
@@ -187,11 +205,21 @@ class AdExProblem(ElementwiseProblem):
     Parameters are normalized to (0, 1) using MinMaxScaler.
     """
 
-    def __init__(self, parameter_bank, data_currents, data_frequencies, scaler):
+    def __init__(
+        self,
+        parameter_bank,
+        data_currents,
+        data_frequencies,
+        scaler,
+        objective_order=None,
+    ):
         self.parameter_bank = parameter_bank
         self.data_currents = data_currents
         self.data_frequencies = data_frequencies
         self.scaler = scaler
+        self.objective_order = (
+            objective_order if objective_order is not None else DEFAULT_OBJECTIVE_ORDER
+        )
 
         # Get bounds from parameter bank
         lower = parameter_bank.lower_bounds
@@ -201,7 +229,7 @@ class AdExProblem(ElementwiseProblem):
         # Initialize ElementwiseProblem with normalized bounds (0, 1)
         super().__init__(
             n_var=n_params,
-            n_obj=len(DEFAULT_OBJECTIVE_ORDER),
+            n_obj=len(self.objective_order),
             n_constr=0,
             xl=np.zeros(n_params),  # All parameters normalized to [0, 1]
             xu=np.ones(n_params),
@@ -226,7 +254,10 @@ class AdExProblem(ElementwiseProblem):
                 out["F"] = np.full(self.n_obj, 1e10)
             else:
                 obj_vector = make_objective_vector(
-                    fi_metrics, param_instance, self.data_frequencies
+                    fi_metrics,
+                    param_instance,
+                    self.data_frequencies,
+                    order=self.objective_order,
                 )
                 out["F"] = obj_vector
 
@@ -245,6 +276,7 @@ def run_optimization(
     seed: Optional[int] = None,
     algorithm: str = "NSGA2",
     n_workers: int = 1,
+    objective_order: Optional[List[str]] = None,
     **algorithm_kwargs,
 ):
     """Run pymoo multi-objective optimization.
@@ -259,21 +291,31 @@ def run_optimization(
         seed: Random seed for reproducibility.
         algorithm: Algorithm to use (NSGA2 or NSGA3).
         n_workers: Number of parallel workers (1 = sequential, >1 = parallel).
+        objective_order: List of objective names to use. If None, uses DEFAULT_OBJECTIVE_ORDER.
         **algorithm_kwargs: Additional keyword arguments for the algorithm.
 
     Returns:
         Pymoo result object with .X (Pareto front parameters) and .F (Pareto front objectives).
     """
+    if objective_order is None:
+        objective_order = DEFAULT_OBJECTIVE_ORDER
+
     t0 = datetime.datetime.now()
     # Create problem
-    problem = AdExProblem(parameter_bank, data_currents, data_frequencies, scaler)
+    problem = AdExProblem(
+        parameter_bank,
+        data_currents,
+        data_frequencies,
+        scaler,
+        objective_order=objective_order,
+    )
     n_params = problem.n_var
     n_objectives = problem.n_obj
 
     logger.info(f"Starting pymoo optimization with {algorithm}")
     logger.info(f"Number of parameters: {n_params}")
     logger.info(f"Number of objectives: {n_objectives}")
-    logger.info(f"Objectives: {DEFAULT_OBJECTIVE_ORDER}")
+    logger.info(f"Objectives: {objective_order}")
     logger.info(f"Population size: {pop_size}")
     logger.info(f"Generations: {n_gen}")
     logger.info(f"Workers: {n_workers}")
@@ -330,7 +372,7 @@ def run_optimization(
         best_idx = np.argmin(np.sum(res.F, axis=1))
         logger.info("Best compromise solution (min sum of objectives):")
         logger.info(f"Objective losses: {res.F[best_idx]}")
-        for i, obj_name in enumerate(DEFAULT_OBJECTIVE_ORDER):
+        for i, obj_name in enumerate(objective_order):
             logger.info(f"  {obj_name}: {res.F[best_idx][i]:.6f}")
 
         # Inverse transform normalized parameters back to original scale
@@ -356,7 +398,13 @@ def run_optimization(
 
 
 def plot_fi_curve_result(
-    result, parameter_bank, scaler, data_currents, data_frequencies, filepath=None
+    result,
+    parameter_bank,
+    scaler,
+    data_currents,
+    data_frequencies,
+    filepath=None,
+    objective_order=None,
 ):
     """Plot the optimized F-I curve against target data.
 
@@ -367,7 +415,10 @@ def plot_fi_curve_result(
         data_currents: Target current values.
         data_frequencies: Target frequency values.
         filepath: Path to save the plot. Default value None does not save.
+        objective_order: List of objective names. If None, uses DEFAULT_OBJECTIVE_ORDER.
     """
+    if objective_order is None:
+        objective_order = DEFAULT_OBJECTIVE_ORDER
     import matplotlib.pyplot as plt
 
     # Get best parameters (compromise solution with minimum sum)
@@ -415,10 +466,7 @@ def plot_fi_curve_result(
     ax.set_ylabel("Firing Rate (Hz)", fontsize=12)
     # Create title with all objective values
     obj_str = ", ".join(
-        [
-            f"{DEFAULT_OBJECTIVE_ORDER[i]}={best_losses[i]:.2f}"
-            for i in range(len(best_losses))
-        ]
+        [f"{objective_order[i]}={best_losses[i]:.2f}" for i in range(len(best_losses))]
     )
     ax.set_title(f"F-I Curve: Optimized vs Target\n({obj_str})", fontsize=12)
     ax.legend(fontsize=11)
@@ -578,6 +626,11 @@ if __name__ == "__main__":
         f"Frequency range: {data_frequencies.min():.2f} - {data_frequencies.max():.2f} Hz"
     )
 
+    # Set objective order based on neuron type
+    objective_order = list(DEFAULT_OBJECTIVE_ORDER)
+    if neuron_type == "imc":
+        objective_order.append("subthreshold_rate_penalty")
+
     # Run optimization
     result = run_optimization(
         parameter_bank=parameter_bank,
@@ -589,6 +642,7 @@ if __name__ == "__main__":
         seed=args.seed,
         algorithm=args.algorithm,
         n_workers=args.n_workers,
+        objective_order=objective_order,
     )
 
     # Determine output label
@@ -609,7 +663,7 @@ if __name__ == "__main__":
     # Save best solution
     with open(result_filepath, "w") as f:
         f.write(f"# Best compromise solution from multi-objective optimization\n")
-        f.write(f"# Objectives: {', '.join(DEFAULT_OBJECTIVE_ORDER)}\n")
+        f.write(f"# Objectives: {', '.join(objective_order)}\n")
         f.write(f"# Losses: {best_losses}\n")
         param_set = parameter_bank.array_to_instance(best_x)
         for name, val in param_set.items():
@@ -620,7 +674,7 @@ if __name__ == "__main__":
     pareto_filepath = unique_path(output_dir / f"{run_label}_pareto.txt")
     with open(pareto_filepath, "w") as f:
         f.write("# Pareto front solutions\n")
-        f.write(f"# Objectives: {', '.join(DEFAULT_OBJECTIVE_ORDER)}\n")
+        f.write(f"# Objectives: {', '.join(objective_order)}\n")
         for i in range(len(result.F)):
             f.write(f"\n# Solution {i+1}, losses: {result.F[i]}\n")
             # Inverse transform normalized parameters back to original scale
@@ -632,7 +686,13 @@ if __name__ == "__main__":
     # Plot the optimized F-I curve
     logger.info("Generating F-I curve plot...")
     plot_fi_curve_result(
-        result, parameter_bank, scaler, data_currents, data_frequencies, plot_filepath
+        result,
+        parameter_bank,
+        scaler,
+        data_currents,
+        data_frequencies,
+        plot_filepath,
+        objective_order=objective_order,
     )
 
     logger.info(f"Results saved to: {output_dir}")
