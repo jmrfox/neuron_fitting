@@ -555,6 +555,43 @@ class AdExExperiment:
 
 def default_parameter_bank(neuron_type, array_mode=False):
     if neuron_type == "imc":
+        # first imc bank, derived from Naud 2008, Fig4a
+        # bank = ParameterBank(
+        #     parameters={
+        #         "dt": IndependentScalarParameter(0.04),
+        #         "T": IndependentScalarParameter(600),
+        #         "delay": IndependentScalarParameter(200.0),
+        #         "slope_time": IndependentScalarParameter(2.0),
+        #         "Vthres": IndependentScalarParameter(0.0),
+        #         "Tref": IndependentScalarParameter(2.0),
+        #         "R": IndependentScalarParameter(
+        #             0.1, is_sampled=True, range=(0.05, 1.0)
+        #         ),
+        #         "tRC": IndependentScalarParameter(20, is_sampled=True, range=(1, 60)),
+        #         "Vrest": IndependentScalarParameter(
+        #             -65, is_sampled=True, range=(-75, -55)
+        #         ),
+        #         "EL": IndependentScalarParameter(
+        #             -70, is_sampled=True, range=(-70, -58)
+        #         ),
+        #         "Ew": DerivedScalarParameter(lambda p: p["EL"]),
+        #         "Vreset": IndependentScalarParameter(
+        #             -58, is_sampled=True, range=(-60, -45)
+        #         ),
+        #         "VTdelta": IndependentScalarParameter(
+        #             8, is_sampled=True, range=(1, 16)
+        #         ),
+        #         "VT": DerivedScalarParameter(lambda p: p["Vreset"] + p["VTdelta"]),
+        #         "Del": IndependentScalarParameter(2, is_sampled=True, range=(0.2, 6)),
+        #         "tau_w": IndependentScalarParameter(
+        #             30, is_sampled=True, range=(1, 300)
+        #         ),
+        #         "a": IndependentScalarParameter(2, is_sampled=True, range=(0, 4)),
+        #         "b": IndependentScalarParameter(0, is_sampled=True, range=(0, 300)),
+        #     },
+        #     array_mode=array_mode,
+        # )
+        # second imc bank, result from pymoo optimization
         bank = ParameterBank(
             parameters={
                 "dt": IndependentScalarParameter(0.04),
@@ -566,27 +603,35 @@ def default_parameter_bank(neuron_type, array_mode=False):
                 "R": IndependentScalarParameter(
                     0.1, is_sampled=True, range=(0.05, 1.0)
                 ),
-                "tRC": IndependentScalarParameter(20, is_sampled=True, range=(1, 60)),
+                "tRC": IndependentScalarParameter(
+                    28.323, is_sampled=True, range=(1, 60)
+                ),
                 "Vrest": IndependentScalarParameter(
-                    -65, is_sampled=True, range=(-75, -55)
+                    -58.089859346412425, is_sampled=True, range=(-75, -55)
                 ),
                 "EL": IndependentScalarParameter(
-                    -70, is_sampled=True, range=(-70, -58)
+                    -58.71575240310381, is_sampled=True, range=(-70, -58)
                 ),
                 "Ew": DerivedScalarParameter(lambda p: p["EL"]),
                 "Vreset": IndependentScalarParameter(
-                    -58, is_sampled=True, range=(-60, -45)
+                    -59.572403760015824, is_sampled=True, range=(-60, -45)
                 ),
                 "VTdelta": IndependentScalarParameter(
-                    8, is_sampled=True, range=(1, 16)
+                    3.9273680720678135, is_sampled=True, range=(1, 16)
                 ),
                 "VT": DerivedScalarParameter(lambda p: p["Vreset"] + p["VTdelta"]),
-                "Del": IndependentScalarParameter(2, is_sampled=True, range=(0.2, 6)),
-                "tau_w": IndependentScalarParameter(
-                    30, is_sampled=True, range=(1, 300)
+                "Del": IndependentScalarParameter(
+                    0.20218913966162239, is_sampled=True, range=(0.2, 6)
                 ),
-                "a": IndependentScalarParameter(2, is_sampled=True, range=(0, 4)),
-                "b": IndependentScalarParameter(0, is_sampled=True, range=(0, 300)),
+                "tau_w": IndependentScalarParameter(
+                    7.890272312975767, is_sampled=True, range=(1, 300)
+                ),
+                "a": IndependentScalarParameter(
+                    1.7616235795323674, is_sampled=True, range=(0, 4)
+                ),
+                "b": IndependentScalarParameter(
+                    22.3122045831121, is_sampled=True, range=(0, 300)
+                ),
             },
             array_mode=array_mode,
         )
